@@ -1,5 +1,5 @@
 const express = require('express');
-const { MercadoPagoConfig, PreApproval } = require('mercadopago');
+const { MercadoPagoConfig, PreApproval, Payment } = require('mercadopago');
 const { PrismaClient } = require('@prisma/client');
 const { authMiddleware } = require('../middleware/auth');
 
@@ -8,6 +8,7 @@ const prisma = new PrismaClient();
 
 const mpClient = new MercadoPagoConfig({ accessToken: process.env.MP_ACCESS_TOKEN });
 const preApproval = new PreApproval(mpClient);
+const payment = new Payment(mpClient);
 
 const TRIAL_DAYS = 7;
 
@@ -66,6 +67,32 @@ router.get('/status', authMiddleware, async (req, res) => {
   });
 });
 
+// POST /subscription/pix — gera QR code PIX para pagamento mensal
+router.post('/pix', authMiddleware, async (req, res) => {
+  try {
+    const response = await payment.create({
+      body: {
+        transaction_amount: 37.00,
+        description: 'Viva Pro — Mensal',
+        payment_method_id: 'pix',
+        payer: { email: req.user.email },
+        external_reference: req.user.id,
+        notification_url: `${process.env.BACKEND_URL || 'https://viva-backend-production-37f1.up.railway.app'}/subscription/webhook`,
+      },
+    });
+
+    const txData = response.point_of_interaction?.transaction_data;
+    res.json({
+      id: response.id,
+      qr_code: txData?.qr_code,
+      qr_code_base64: txData?.qr_code_base64,
+    });
+  } catch (err) {
+    console.error('Erro PIX MP:', err);
+    res.status(500).json({ error: 'Erro ao gerar PIX.' });
+  }
+});
+
 // POST /subscription/webhook — notificações do Mercado Pago
 router.post('/webhook', async (req, res) => {
   try {
@@ -86,6 +113,23 @@ router.post('/webhook', async (req, res) => {
         create: { userId, mpSubscriptionId: data.id, status, currentPeriodEnd: nextPayment },
         update: { mpSubscriptionId: data.id, status, currentPeriodEnd: nextPayment },
       });
+    }
+
+    if (type === 'payment' && data?.id) {
+      const mpPayment = await payment.get({ id: data.id });
+      if (mpPayment.payment_method_id === 'pix' && mpPayment.status === 'approved') {
+        const userId = mpPayment.external_reference;
+        if (!userId) return res.json({ received: true });
+
+        const currentPeriodEnd = new Date();
+        currentPeriodEnd.setDate(currentPeriodEnd.getDate() + 30);
+
+        await prisma.subscription.upsert({
+          where: { userId },
+          create: { userId, mpSubscriptionId: String(mpPayment.id), status: 'active', currentPeriodEnd },
+          update: { mpSubscriptionId: String(mpPayment.id), status: 'active', currentPeriodEnd },
+        });
+      }
     }
 
     res.json({ received: true });
