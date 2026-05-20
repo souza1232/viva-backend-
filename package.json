@@ -4,7 +4,7 @@
   "description": "Backend da plataforma Viva - IA para mulheres na menopausa",
   "main": "src/server.js",
   "scripts": {
-    "build": "prisma generate",
+    "build": "node node_modules/.bin/prisma generate",
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "db:generate": "prisma generate",
