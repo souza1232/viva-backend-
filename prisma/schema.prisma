@@ -1,0 +1,185 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String   @id @default(uuid())
+  email         String   @unique
+  passwordHash  String
+  name          String
+  age           Int?
+  mainSymptoms  String[] // ["fogachos", "insonia", "ansiedade", ...]
+  mainRole      String?  // "empresaria" | "mae" | "esposa" | "todas"
+  onboardingDone Boolean @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  subscription  Subscription?
+  messages      Message[]
+  posts         CommunityPost[]
+  replies       CommunityReply[]
+  reports       MonthlyReport[]
+  meals         MealAnalysis[]
+  mealPlans     MealPlan[]
+  checkins      DailyCheckin[]
+  rituals       DailyRitual[]
+
+  @@map("users")
+}
+
+model Subscription {
+  id               String    @id @default(uuid())
+  userId           String    @unique
+  mpSubscriptionId String?
+  status           String    @default("trial") // trial | active | canceled | past_due
+  trialEndsAt      DateTime?
+  currentPeriodEnd DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("subscriptions")
+}
+
+model Message {
+  id        String   @id @default(uuid())
+  userId    String
+  role      String   // "user" | "assistant"
+  content   String   @db.Text
+  audioUrl  String?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("messages")
+}
+
+model CommunityPost {
+  id        String   @id @default(uuid())
+  userId    String
+  theme     String   // "corpo" | "mente" | "vida_pratica" | "reinvencao"
+  content   String   @db.Text
+  weekYear  String   // "2024-W01" formato ISO
+  isPinned  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user    User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  replies CommunityReply[]
+
+  @@index([weekYear, theme])
+  @@map("community_posts")
+}
+
+model CommunityReply {
+  id        String   @id @default(uuid())
+  postId    String
+  userId    String
+  content   String   @db.Text
+  createdAt DateTime @default(now())
+
+  post CommunityPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("community_replies")
+}
+
+model MonthlyReport {
+  id               String   @id @default(uuid())
+  userId           String
+  month            Int      // 1-12
+  year             Int
+  topSymptoms      String[] // sintomas mais frequentes
+  moodEvolution    Json     // { semana1: "bem", semana2: "cansada", ... }
+  sleepPatterns    String   @db.Text
+  achievements     String[] // conquistas do mês
+  suggestions      String[] // sugestões da IA
+  doctorQuestions  String[] // perguntas para levar ao médico
+  summaryText      String   @db.Text
+  createdAt        DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, month, year])
+  @@map("monthly_reports")
+}
+
+model MealAnalysis {
+  id              String   @id @default(uuid())
+  userId          String
+  imageBase64     String?  @db.Text
+  mealDescription String   @db.Text  // o que a IA identificou
+  calories        Int?               // estimativa de calorias
+  isGoodForMeno   Boolean            // bom para menopausa?
+  benefits        String[] // ["rico em cálcio", "apoia saúde óssea", ...]
+  warnings        String[] // ["alto em açúcar", ...]
+  suggestions     String[] // ["adicione azeite", "substitua por integral", ...]
+  fullAnalysis    String   @db.Text  // resposta completa da Viva
+  mealType        String?            // "café", "almoço", "jantar", "lanche"
+  createdAt       DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("meal_analyses")
+}
+
+model MealPlan {
+  id        String   @id @default(uuid())
+  userId    String
+  month     Int
+  year      Int
+  planData  Json
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, month, year])
+  @@index([userId])
+  @@map("meal_plans")
+}
+
+model DailyRitual {
+  id             String    @id @default(uuid())
+  userId         String
+  date           String    // "2024-01-15"
+  message        String    @db.Text
+  challenge      String
+  challengeEmoji String    @default("✨")
+  completed      Boolean   @default(false)
+  completedAt    DateTime?
+  createdAt      DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@index([userId, date])
+  @@map("daily_rituals")
+}
+
+model DailyCheckin {
+  id          String   @id @default(uuid())
+  userId      String
+  date        String   // "2024-01-15" YYYY-MM-DD
+  mood        Int      // 1-5
+  energy      Int?     // 1-5
+  sleep       Int?     // 1-5
+  hotFlashes  Int?     // quantidade de fogachos
+  painLevel   Int?     // 1-5
+  notes       String?  @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@index([userId, date])
+  @@map("daily_checkins")
+}
