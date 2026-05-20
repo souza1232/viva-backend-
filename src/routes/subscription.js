@@ -1,5 +1,5 @@
 const express = require('express');
-const { MercadoPagoConfig, PreApproval, Payment } = require('mercadopago');
+const { MercadoPagoConfig, PreApproval } = require('mercadopago');
 const { PrismaClient } = require('@prisma/client');
 const { authMiddleware } = require('../middleware/auth');
 
@@ -8,7 +8,6 @@ const prisma = new PrismaClient();
 
 const mpClient = new MercadoPagoConfig({ accessToken: process.env.MP_ACCESS_TOKEN });
 const preApproval = new PreApproval(mpClient);
-const payment = new Payment(mpClient);
 
 const TRIAL_DAYS = 7;
 
@@ -70,7 +69,9 @@ router.get('/status', authMiddleware, async (req, res) => {
 // POST /subscription/pix — gera QR code PIX para pagamento mensal
 router.post('/pix', authMiddleware, async (req, res) => {
   try {
-    const response = await payment.create({
+    const { Payment } = require('mercadopago');
+    const paymentClient = new Payment(mpClient);
+    const response = await paymentClient.create({
       body: {
         transaction_amount: 37.00,
         description: 'Viva Pro — Mensal',
@@ -116,7 +117,9 @@ router.post('/webhook', async (req, res) => {
     }
 
     if (type === 'payment' && data?.id) {
-      const mpPayment = await payment.get({ id: data.id });
+      const { Payment } = require('mercadopago');
+      const paymentClient = new Payment(mpClient);
+      const mpPayment = await paymentClient.get({ id: data.id });
       if (mpPayment.payment_method_id === 'pix' && mpPayment.status === 'approved') {
         const userId = mpPayment.external_reference;
         if (!userId) return res.json({ received: true });
