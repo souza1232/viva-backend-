@@ -145,6 +145,11 @@ router.post('/webhook', async (req, res) => {
 // POST /subscription/kiwify-webhook — notificações do Kiwify (pagou → libera acesso)
 router.post('/kiwify-webhook', async (req, res) => {
   try {
+    const token = req.query.token;
+    if (process.env.KIWIFY_WEBHOOK_TOKEN && token !== process.env.KIWIFY_WEBHOOK_TOKEN) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
     const { order_status, customer, subscription } = req.body;
 
     if (order_status !== 'paid') return res.json({ received: true });
