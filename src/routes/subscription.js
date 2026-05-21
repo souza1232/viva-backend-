@@ -142,6 +142,35 @@ router.post('/webhook', async (req, res) => {
   }
 });
 
+// POST /subscription/kiwify-webhook — notificações do Kiwify (pagou → libera acesso)
+router.post('/kiwify-webhook', async (req, res) => {
+  try {
+    const { order_status, customer, subscription } = req.body;
+
+    if (order_status !== 'paid') return res.json({ received: true });
+
+    const email = customer?.email;
+    if (!email) return res.json({ received: true });
+
+    const user = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
+    if (!user) return res.json({ received: true });
+
+    const currentPeriodEnd = new Date();
+    currentPeriodEnd.setDate(currentPeriodEnd.getDate() + 30);
+
+    await prisma.subscription.upsert({
+      where: { userId: user.id },
+      create: { userId: user.id, status: 'active', currentPeriodEnd },
+      update: { status: 'active', currentPeriodEnd },
+    });
+
+    res.json({ received: true });
+  } catch (err) {
+    console.error('Kiwify webhook erro:', err);
+    res.status(500).json({ error: 'Erro no webhook' });
+  }
+});
+
 // POST /subscription/cancel — cancela assinatura
 router.post('/cancel', authMiddleware, async (req, res) => {
   try {
