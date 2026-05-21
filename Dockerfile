@@ -1,7 +1,7 @@
-FROM node:20-alpine
+FROM node:20-slim
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci --only=production
+RUN npm ci
 COPY . .
 RUN npx prisma generate
 EXPOSE 3000
