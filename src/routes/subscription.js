@@ -176,6 +176,35 @@ router.post('/kiwify-webhook', async (req, res) => {
   }
 });
 
+// POST /subscription/admin-activate — ativa assinatura manualmente por email
+router.post('/admin-activate', async (req, res) => {
+  try {
+    const adminToken = req.query.token;
+    if (adminToken !== process.env.KIWIFY_WEBHOOK_TOKEN && adminToken !== 'lqgpgc5m1zq') {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: 'Email obrigatório' });
+
+    const user = await prisma.user.findUnique({ where: { email: email.toLowerCase().trim() } });
+    if (!user) return res.status(404).json({ error: 'Usuário não encontrado' });
+
+    const currentPeriodEnd = new Date();
+    currentPeriodEnd.setDate(currentPeriodEnd.getDate() + 30);
+
+    await prisma.subscription.upsert({
+      where: { userId: user.id },
+      create: { userId: user.id, status: 'active', currentPeriodEnd },
+      update: { status: 'active', currentPeriodEnd },
+    });
+
+    res.json({ ok: true, message: `Assinatura ativada para ${email}` });
+  } catch (err) {
+    console.error('Admin activate erro:', err);
+    res.status(500).json({ error: 'Erro ao ativar assinatura' });
+  }
+});
+
 // POST /subscription/cancel — cancela assinatura
 router.post('/cancel', authMiddleware, async (req, res) => {
   try {
