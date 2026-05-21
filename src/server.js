@@ -12,6 +12,7 @@ const reportRoutes = require('./routes/report');
 const subscriptionRoutes = require('./routes/subscription');
 const checkinRoutes = require('./routes/checkin');
 const ritualRoutes = require('./routes/ritual');
+const adminRoutes = require('./routes/admin');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -56,6 +57,7 @@ app.use('/user/report', reportRoutes);
 app.use('/subscription', subscriptionRoutes);
 app.use('/checkin', checkinRoutes);
 app.use('/ritual', ritualRoutes);
+app.use('/admin', adminRoutes);
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', app: 'Viva API', version: '1.0.0' });
