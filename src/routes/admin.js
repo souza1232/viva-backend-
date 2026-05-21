@@ -12,9 +12,55 @@ function adminAuth(req, res, next) {
   next();
 }
 
+// POST /admin/activate — ativa assinatura por email
+router.post('/activate', adminAuth, async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: 'Email obrigatório' });
+
+    const user = await prisma.user.findUnique({ where: { email: email.toLowerCase().trim() } });
+    if (!user) return res.status(404).json({ error: 'Usuária não encontrada' });
+
+    const currentPeriodEnd = new Date();
+    currentPeriodEnd.setDate(currentPeriodEnd.getDate() + 30);
+
+    await prisma.subscription.upsert({
+      where: { userId: user.id },
+      create: { userId: user.id, status: 'active', currentPeriodEnd },
+      update: { status: 'active', currentPeriodEnd },
+    });
+
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /admin/cancel — cancela assinatura por email
+router.post('/cancel', adminAuth, async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: 'Email obrigatório' });
+
+    const user = await prisma.user.findUnique({ where: { email: email.toLowerCase().trim() } });
+    if (!user) return res.status(404).json({ error: 'Usuária não encontrada' });
+
+    await prisma.subscription.upsert({
+      where: { userId: user.id },
+      create: { userId: user.id, status: 'canceled', currentPeriodEnd: new Date() },
+      update: { status: 'canceled' },
+    });
+
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.get('/', adminAuth, async (req, res) => {
   try {
   const now = new Date();
+  const key = req.query.key;
 
   const [users, subscriptions] = await Promise.all([
     prisma.user.findMany({
@@ -41,6 +87,8 @@ router.get('/', adminAuth, async (req, res) => {
 
   const formatDate = (d) => d ? new Date(d).toLocaleDateString('pt-BR') : '—';
 
+  const isActive = (sub) => sub?.status === 'active' && sub?.currentPeriodEnd > now;
+
   const rows = users.map(u => `
     <tr>
       <td>${u.name}</td>
@@ -50,6 +98,12 @@ router.get('/', adminAuth, async (req, res) => {
       <td>${u.subscription?.trialEndsAt ? formatDate(u.subscription.trialEndsAt) : '—'}</td>
       <td>${u.subscription?.currentPeriodEnd ? formatDate(u.subscription.currentPeriodEnd) : '—'}</td>
       <td>${formatDate(u.createdAt)}</td>
+      <td>
+        ${!isActive(u.subscription)
+          ? `<button class="btn-activate" onclick="activate('${u.email}')">✅ Ativar</button>`
+          : `<button class="btn-cancel" onclick="cancelSub('${u.email}')">❌ Cancelar</button>`
+        }
+      </td>
     </tr>
   `).join('');
 
@@ -73,13 +127,19 @@ router.get('/', adminAuth, async (req, res) => {
     .section h2 { font-size: 18px; font-weight: 700; margin-bottom: 16px; color: #444; }
     table { width: 100%; border-collapse: collapse; background: white; border-radius: 16px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.07); }
     th { background: #C96A8A; color: white; padding: 12px 16px; text-align: left; font-size: 13px; font-weight: 600; }
-    td { padding: 12px 16px; font-size: 14px; border-bottom: 1px solid #f5e6ef; }
+    td { padding: 10px 16px; font-size: 14px; border-bottom: 1px solid #f5e6ef; vertical-align: middle; }
     tr:last-child td { border-bottom: none; }
     tr:hover td { background: #fff5f8; }
     .refresh { float: right; background: white; border: 2px solid #C96A8A; color: #C96A8A; padding: 8px 16px; border-radius: 8px; font-weight: 600; cursor: pointer; text-decoration: none; font-size: 14px; }
+    .btn-activate { background: #2ecc71; color: white; border: none; padding: 6px 14px; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; }
+    .btn-activate:hover { background: #27ae60; }
+    .btn-cancel { background: #e74c3c; color: white; border: none; padding: 6px 14px; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; }
+    .btn-cancel:hover { background: #c0392b; }
+    .toast { display:none; position:fixed; bottom:24px; left:50%; transform:translateX(-50%); background:#333; color:white; padding:12px 24px; border-radius:12px; font-size:14px; font-weight:600; z-index:999; }
   </style>
 </head>
 <body>
+  <div class="toast" id="toast"></div>
   <header>
     <h1>🌸 Viva — Painel Admin</h1>
     <p>Atualizado em ${new Date().toLocaleString('pt-BR')}</p>
@@ -94,22 +154,50 @@ router.get('/', adminAuth, async (req, res) => {
   </div>
 
   <div class="section">
-    <h2>Todas as usuárias <a class="refresh" href="?key=${req.query.key}">↻ Atualizar</a></h2>
+    <h2>Todas as usuárias <a class="refresh" href="?key=${key}">↻ Atualizar</a></h2>
     <table>
       <thead>
         <tr>
-          <th>Nome</th>
-          <th>Email</th>
-          <th>Telefone</th>
-          <th>Status</th>
-          <th>Trial até</th>
-          <th>Renova em</th>
-          <th>Cadastro</th>
+          <th>Nome</th><th>Email</th><th>Telefone</th><th>Status</th>
+          <th>Trial até</th><th>Renova em</th><th>Cadastro</th><th>Ação</th>
         </tr>
       </thead>
       <tbody>${rows}</tbody>
     </table>
   </div>
+
+  <script>
+    const ADMIN_KEY = '${key}';
+
+    function showToast(msg) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.style.display = 'block';
+      setTimeout(() => t.style.display = 'none', 3000);
+    }
+
+    async function activate(email) {
+      if (!confirm('Ativar assinatura de ' + email + '?')) return;
+      const res = await fetch('/admin/activate?key=' + ADMIN_KEY, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      if (res.ok) { showToast('✅ Assinatura ativada!'); setTimeout(() => location.reload(), 1500); }
+      else showToast('❌ Erro ao ativar.');
+    }
+
+    async function cancelSub(email) {
+      if (!confirm('Cancelar assinatura de ' + email + '?')) return;
+      const res = await fetch('/admin/cancel?key=' + ADMIN_KEY, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      if (res.ok) { showToast('🚫 Assinatura cancelada.'); setTimeout(() => location.reload(), 1500); }
+      else showToast('❌ Erro ao cancelar.');
+    }
+  </script>
 </body>
 </html>`;
 
